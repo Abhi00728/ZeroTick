@@ -78,10 +78,30 @@ int main(int argc,char** argv){
 		tick->ask_price = 65000 + drift;
 		tick->bid_vol = 25;
 		tick->ask_vol = 20;
-
-		if(seq % 100 == 0){
+		
+		if (seq % 500 == 0) {
+                        // Every 500th tick: Liquidity Crash / Spread Blowout! (Spread = 1500)
+                        tick->bid_price = 64000;
+                        tick->ask_price = 65500;
+                        if (!turbo_mode) {
+                                printf("\n[EXCH -> WIRE] Tick #%u | SPREAD BLOWOUT! Spread = %u\n",
+                                seq, tick->ask_price - tick->bid_price);
+                        }
+                }
+		else if (seq % 250 == 0) {
+                        // Every 250th tick: Price Spike! (bid_price jumps to 65,250)
+                        tick->bid_price = 65250;
+                        tick->ask_price = 65260;
+                        tick->bid_vol   = 15;
+                        tick->ask_vol   = 140;
+                        if (!turbo_mode) {
+                                printf("\n[EXCH -> WIRE] Tick #%u | PRICE SPIKE INJECTED! Bid = %u\n",
+                                seq, tick->bid_price);
+                        }
+                }
+		else if(seq % 100 == 0){
 			tick->bid_price = 64840;
-			tick->bid_price = 64850;
+			tick->ask_price = 64850;
 			tick->bid_vol = 120;
 			tick->ask_vol = 15;
 
@@ -89,26 +109,6 @@ int main(int argc,char** argv){
 				printf("TICK #%u |FLASH DIP INJECTED ASK = %u\n",seq,tick->ask_price);
 			}
 		}
-		else if (seq % 250 == 0) {
-            		// Every 250th tick: Price Spike! (bid_price jumps to 65,250)
-            		tick->bid_price = 65250;
-            		tick->ask_price = 65260;
-            		tick->bid_vol   = 15;
-            		tick->ask_vol   = 140;
-            		if (!turbo_mode) {
-                		printf("\n[EXCH -> WIRE] Tick #%u | PRICE SPIKE INJECTED! Bid = %u\n",
-                       		seq, tick->bid_price);
-            		}
-        	} 
-		else if (seq % 500 == 0) {
-            		// Every 500th tick: Liquidity Crash / Spread Blowout! (Spread = 1500)
-            		tick->bid_price = 64000;
-            		tick->ask_price = 65500;
-            		if (!turbo_mode) {
-                		printf("\n[EXCH -> WIRE] Tick #%u | SPREAD BLOWOUT! Spread = %u\n",
-                       		seq, tick->ask_price - tick->bid_price);
-            		}
-        	}
 		tick->timestamp_ns = zt_now_ns();
 
 		if(send(sock_fd,tx_buf,sizeof(tx_buf),0) < 0){
