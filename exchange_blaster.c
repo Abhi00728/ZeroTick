@@ -26,7 +26,7 @@ int main(int argc,char** argv){
 	}
 
 	//OPEN A RAW SOCKET AND BIND IT TO OUR VETH-EXCH!!
-	int sock_fd = open(AF_PACKET,SOCK_RAW,htons(ETH_P_ALL));
+	int sock_fd = socket(AF_PACKET,SOCK_RAW,htons(ETH_P_ALL));
 	if(sock_fd < 0){
 		perror("SOCKET(AF_PACKET) FAILED!(did u run sudo?)");
 		return 0;
@@ -53,7 +53,7 @@ int main(int argc,char** argv){
 	
 	uint8_t tx_buf[ZT_ETH_HEADER_LEN + sizeof(zt_itch_tick_t)] = {0};
 	memcpy(tx_buf+0,MAC_ZT,6);
-	memcpy(tx_buf+6,MAX_EXCH,6);
+	memcpy(tx_buf+6,MAC_EXCH,6);
 	uint16_t eth_type = htons(ZT_ETHERTYPE);
 	memcpy(tx_buf+12, &eth_type,2);
 	zt_itch_tick_t *tick = (zt_itch_tick_t*)(tx_buf+ZT_ETH_HEADER_LEN);
@@ -67,7 +67,7 @@ int main(int argc,char** argv){
     	printf("================================================================\n");
 
 	uint32_t seq = 0;
-	uint8_t rx_buff = 128;
+	uint8_t rx_buff[128];
 
 	//NOW AN INFINITE LOOP TO CATCH THE ORDERS,CONTINUOUS FLOW OF DATA
 	while(keep_running){
@@ -79,28 +79,85 @@ int main(int argc,char** argv){
 		tick->bid_vol = 25;
 		tick->ask_vol = 20;
 
-		if(
+		if(seq % 100 == 0){
+			tick->bid_price = 64840;
+			tick->bid_price = 64850;
+			tick->bid_vol = 120;
+			tick->ask_vol = 15;
 
+			if(!turbo_mode){
+				printf("TICK #%u |FLASH DIP INJECTED ASK = %u\n",seq,tick->ask_price);
+			}
+		}
+		else if (seq % 250 == 0) {
+            		// Every 250th tick: Price Spike! (bid_price jumps to 65,250)
+            		tick->bid_price = 65250;
+            		tick->ask_price = 65260;
+            		tick->bid_vol   = 15;
+            		tick->ask_vol   = 140;
+            		if (!turbo_mode) {
+                		printf("\n[EXCH -> WIRE] Tick #%u | PRICE SPIKE INJECTED! Bid = %u\n",
+                       		seq, tick->bid_price);
+            		}
+        	} 
+		else if (seq % 500 == 0) {
+            		// Every 500th tick: Liquidity Crash / Spread Blowout! (Spread = 1500)
+            		tick->bid_price = 64000;
+            		tick->ask_price = 65500;
+            		if (!turbo_mode) {
+                		printf("\n[EXCH -> WIRE] Tick #%u | SPREAD BLOWOUT! Spread = %u\n",
+                       		seq, tick->ask_price - tick->bid_price);
+            		}
+        	}
+		tick->timestamp_ns = zt_now_ns();
 
+		if(send(sock_fd,tx_buf,sizeof(tx_buf),0) < 0){
+			perror("FAILURE IN TRANSMITTING DATA");
+			return 0;
+		}
 
+		//WE NEED TO CHECK FOR ORDERS TOO, SO NEED TO KEEP THIS NON-BLOCKING!!
+		while(1){
+			ssize_t n = recv(sock_fd,rx_buff,sizeof(rx_buff),MSG_DONTWAIT);
+			if(n < (ssize_t)(ZT_ETH_HEADER_LEN + sizeof(zt_ouch_order_t))){
+				break;
+			}
+			zt_ouch_order_t *order = (zt_ouch_order_t*)(rx_buff + ZT_ETH_HEADER_LEN);
+			if(order->magic == ZT_OUCH_MAGIC){
+				uint64_t now_ns = zt_now_ns();
+				uint64_t rtt_ns = now_ns - order->origin_ts_ns;
 
+				wb->last_rtt_ns = rtt_ns;
+				wb->sum_rtt_ns += rtt_ns;
 
+				if(rtt_ns < wb->min_rtt_ns || wb->min_rtt_ns == 0){
+					wb->min_rtt_ns = rtt_ns;
+				}
+				if(rtt_ns > wb->max_rtt_ns){
+					wb->max_rtt_ns = rtt_ns;
+				}
+				const char *act = (order->action == ACTION_BUY) ? "BUY" : 
+							(order->action == ACTION_SELL) ? "SELL":
+							(order->action == ACTION_KILL_SWITCH) ? "KILL_SWITCH" : "UNKNOWN";
+				if(!turbo_mode){
+					printf("  ⚡ [WIRE -> EXCH] Order Caught! Action: %-11s | Price: %u | Qty: %u | Tick #%u |RTT: %lu ns\n",act, order->order_price, order->order_qty,order->trigger_seq_num, (unsigned long)rtt_ns);
+				}
+			}
+		}
+		if (!turbo_mode && (seq % 50 == 0)) {
+            		printf("[Heartbeat] Sent %u ticks | Bid: %u | Ask: %u\r",
+                   	seq, tick->bid_price, tick->ask_price);
+            		fflush(stdout);
+        	}
 
+        	// Sleep 10ms between ticks in normal mode (100 ticks/sec) so output is easy to read
+        	if (!turbo_mode) {
+            		usleep(10000);
+        	}
+    	}
 
+	printf("CLOSING THE ENGINE, TOTAL_TICKS SENT = %u\n",seq);
+	close(sock_fd);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	return 0;
+}
