@@ -37,6 +37,65 @@ void load_default_strategy(zt_whiteboard_t *wb){
 
 static inline void execute_vm_on_tick(const zt_itch_tick_t* tick,const zt_strategy_slot_t* slot,int sock_fd,uint8_t *tx_buf,
 		zt_ouch_order_t* out_order, zt_whiteboard_t *wb, uint8_t *fired_action){
+	int64_t R[8] = {0};
+	*fired_action = ACTION_NONE;
+
+	for(uint32_t pc = 0 ; pc < slot->num_instructions ; pc++){
+		zt_instruction_t inst = slot[pc];
+		switch(inst.opcode){
+			case OP_LOAD_FIELD:
+				switch(inst.src1){
+					case FIELD_BID_PRICE: 
+						R[inst.dst] = tick->bid_price;
+						break;
+					case FIELD_ASK_PRICE:
+                                                R[inst.dst] = tick->ask_price;
+                                                break;
+					case FIELD_BID_VOL:
+                                                R[inst.dst] = tick->bid_vol;;
+                                                break;
+					case FIELD_ASK_VOL:
+                                                R[inst.dst] = tick->ask_vol;
+                                                break;
+				}
+				break;
+			
+			case OP_LOAD_IMM:
+				R[inst.dst] = inst.imm_val;
+				break;
+
+			case OP_ADD:
+				R[inst.dst] = R[inst.src1] + R[inst.src2];
+				break;
+			case OP_SUB:
+				R[inst.dst] = R[inst.src1] - R[inst.src2];
+				break;
+			case OP_CMP_GT:
+				R[inst.dst] = (R[src1] > R[src2]) ? 1 : 0;
+				break;
+			case OP_CMP_LT:
+				R[inst.dst] = (R[src1] < R[src2]) ? 1 : 0;
+				break;
+			case OP_JMP_IF_ZERO:
+				if(R[src1] == 0){
+					return;
+				}
+				break;
+
+			case OP_FIRE_BUY:
+				uint8_t act = "ACTION_BUY";
+				out_order->magic = ZT_OUCH_MAGIC;
+				out_order->trigger_seq_num = tick->seq_num;
+				out_order->origin_ts_ns = tick->timestamp_ns;
+				out_order->order_price = (uint32_t)R[inst.src1];
+				out_order->order_qty = (uint16_t)inst.imm_val;
+				out_order->action = act;
+//Here if i just send the out_order thing, then the header would be missing out!!, so instead send tx_buff, which i'll later modify 
+				send(sock_fd,tx_buff,ZT_ETH_HEADER_LEN + sizeof(zt_ouch_order_t),0);
+				atomic_fetch_add(&wb->orders_fired,1);
+				fired_action = act;
+
+
 }
 
 
