@@ -35,7 +35,7 @@ void load_default_strategy(zt_whiteboard_t *wb){
 	slot->num_instructions = 6;
 }
 
-static inline void execute_vm_on_tick(const zt_itch_tick_t* tick,const zt_strategy_slot_t* slot,int sock_fd,uint8_t *tx_buf,
+static inline void execute_vm_on_tick(const zt_itch_tick_t* tick,const zt_strategy_slot_t* slot,
 		zt_ouch_order_t* out_order, zt_whiteboard_t *wb, uint8_t *fired_action){
 	int64_t R[8] = {0};
 	*fired_action = ACTION_NONE;
@@ -93,7 +93,7 @@ static inline void execute_vm_on_tick(const zt_itch_tick_t* tick,const zt_strate
                 		out_order->action          = act;
 
                 		// Blast 38-byte raw Ethernet + ZT-OUCH frame straight back out veth-zt
-                		send(sock_fd, tx_buf, ZT_ETH_HEADER_LEN + sizeof(zt_ouch_order_t), 0);
+
 
                 		atomic_fetch_add(&wb->orders_fired, 1);
                 		*fired_action = act;
@@ -107,7 +107,6 @@ static inline void execute_vm_on_tick(const zt_itch_tick_t* tick,const zt_strate
                 		out_order->order_qty       = 0;
                 		out_order->action          = ACTION_KILL_SWITCH;
 
-                		send(sock_fd, tx_buf, ZT_ETH_HEADER_LEN + sizeof(zt_ouch_order_t), 0);
 
                 		atomic_fetch_add(&wb->kill_switches_tripped, 1);
                 		*fired_action = ACTION_KILL_SWITCH;
@@ -173,8 +172,9 @@ int main(){
 	uint8_t rx_buf[128];
 
 	while(keep_running){
-		ssize_t n = recv(sock_fd,rx_buf,sizeof(rx_buf),0);
+		ssize_t n = recv(sock_fd,rx_buf,sizeof(rx_buf),MSG_DONTWAIT);
 		if(n < (ssize_t)(ZT_ETH_HEADER_LEN + sizeof(zt_itch_tick_t))){
+			__builtin_ia32_pause();
 			continue;
 		}
 		//wrote this because i may have a chance of receiving my own packet right?(i'm still not sure though)!
@@ -185,14 +185,17 @@ int main(){
 		if(tick->magic != ZT_ITCH_MAGIC){
 			continue;
 		}
-		uint64_t time = zt_now_ns();
 		uint32_t active_idx = atomic_load_explicit(&wb->active_slot,memory_order_acquire);
 		const zt_strategy_slot_t *active_strategy = &wb->slots[active_idx];
-
-		uint8_t fired_action = ACTION_NONE;
-		execute_vm_on_tick(tick,active_strategy,sock_fd,tx_buf,order,wb,&fired_action);
 		
+		uint8_t fired_action = ACTION_NONE;
+		uint64_t time = zt_now_ns();
+		execute_vm_on_tick(tick,active_strategy,order,wb,&fired_action);
 		uint64_t exec_ns = zt_now_ns() - time;
+
+		if(fired_action != ACTION_NONE){
+			send(sock_fd,tx_buf,ZT_ETH_HEADER_LEN + sizeof(zt_ouch_order_t),0);
+		}
 		uint64_t total_ticks = atomic_fetch_add(&wb->ticks_processed,1) + 1;
 
 		uint32_t log_idx = atomic_fetch_add(&wb->log_head, 1) % LOG_RING_SIZE;
