@@ -119,9 +119,8 @@ int main(int argc,char** argv){
                         return 0;
                 }
 
-                // NO usleep()! Instead, stay wide awake polling the wire for the
-                // 10ms (10,000,000 ns) interval until it is time to send the next tick!
-                uint64_t next_tick_ns = tick->timestamp_ns + (turbo_mode ? 20000ULL : 10000000ULL);
+                //well in the previous version my usleep is the culprit for the bad rtt, so used that 10ms efficiently now!
+		uint64_t next_tick_ns = tick->timestamp_ns + (turbo_mode ? 20000ULL : 10000000ULL);
                 while (keep_running && zt_now_ns() < next_tick_ns) {
                         ssize_t n = recv(sock_fd,rx_buff,sizeof(rx_buff),MSG_DONTWAIT);
                         if(n < (ssize_t)(ZT_ETH_HEADER_LEN + sizeof(zt_ouch_order_t))){
